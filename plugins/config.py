@@ -29,7 +29,7 @@ logging.basicConfig(
 
 class Config(object):
     # ========== Basic Bot Info ==========
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "your_bot_token_here")
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "8021806435:AAEHRMNJkB3Vm7uIa_2XLcY5ESIMDm17zWU")
     BOT_USERNAME = os.getenv("BOT_USERNAME", "Url_Uploader_NY_Bot")
     API_ID = int(os.getenv("API_ID", "24720215"))
     API_HASH = os.getenv("API_HASH", "c0d3395590fecba19985f95d6300785e")
