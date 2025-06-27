@@ -1,5 +1,3 @@
-# ©️ LISA-KOREA | @LISA_FAN_LK | NT_BOT_CHANNEL
-
 import logging
 import asyncio
 import json
@@ -8,22 +6,18 @@ import shutil
 import time
 from datetime import datetime
 from pyrogram import enums
-from pyrogram.types import InputMediaPhoto
 from plugins.config import Config
 from plugins.script import Translation
 from plugins.thumbnail import *
 from plugins.functions.display_progress import progress_for_pyrogram, humanbytes
 from plugins.database.database import db
-from PIL import Image
 from plugins.functions.ran_text import random_char
 
 cookies_file = 'cookies.txt'
-
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
-
 
 async def youtube_dl_call_back(bot, update):
     cb_data = update.data
@@ -42,91 +36,36 @@ async def youtube_dl_call_back(bot, update):
 
     youtube_dl_url = update.message.reply_to_message.text
     custom_file_name = f"{response_json.get('title')}_{youtube_dl_format}.{youtube_dl_ext}"
-    youtube_dl_username = None
-    youtube_dl_password = None
-
-    if "|" in youtube_dl_url:
-        url_parts = youtube_dl_url.split("|")
-        if len(url_parts) == 2:
-            youtube_dl_url, custom_file_name = url_parts
-        elif len(url_parts) == 4:
-            youtube_dl_url, custom_file_name, youtube_dl_username, youtube_dl_password = url_parts
-        else:
-            for entity in update.message.reply_to_message.entities:
-                if entity.type == "text_link":
-                    youtube_dl_url = entity.url
-                elif entity.type == "url":
-                    o = entity.offset
-                    l = entity.length
-                    youtube_dl_url = youtube_dl_url[o:o + l]
-    else:
-        for entity in update.message.reply_to_message.entities:
-            if entity.type == "text_link":
-                youtube_dl_url = entity.url
-            elif entity.type == "url":
-                o = entity.offset
-                l = entity.length
-                youtube_dl_url = youtube_dl_url[o:o + l]
-
-    youtube_dl_url = youtube_dl_url.strip()
-    custom_file_name = custom_file_name.strip()
-    if youtube_dl_username:
-        youtube_dl_username = youtube_dl_username.strip()
-    if youtube_dl_password:
-        youtube_dl_password = youtube_dl_password.strip()
 
     await update.message.edit_caption(
         caption=Translation.DOWNLOAD_START.format(custom_file_name)
     )
 
-    description = Translation.CUSTOM_CAPTION_UL_FILE
-    if "fulltitle" in response_json:
-        description = response_json["fulltitle"][0:1021]
-
     tmp_directory_for_each_user = os.path.join(Config.DOWNLOAD_LOCATION, f"{update.from_user.id}{random1}")
     os.makedirs(tmp_directory_for_each_user, exist_ok=True)
     download_directory = os.path.join(tmp_directory_for_each_user, custom_file_name)
 
+    command_to_exec = [
+        "yt-dlp", "-c", "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
+        "--embed-subs", "--newline", "--progress",
+        "-f", f"{youtube_dl_format}bestvideo+bestaudio/best",
+        "--hls-prefer-ffmpeg", "--cookies", cookies_file,
+        "--user-agent", "Mozilla/5.0",
+        youtube_dl_url,
+        "-o", download_directory
+    ]
+
     if tg_send_type == "audio":
         command_to_exec = [
-            "yt-dlp",
-            "-c",
-            "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
-            "--bidi-workaround",
-            "--extract-audio",
-            "--audio-format", youtube_dl_ext,
+            "yt-dlp", "-c", "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
+            "--extract-audio", "--audio-format", youtube_dl_ext,
             "--audio-quality", youtube_dl_format,
-            "--cookies", cookies_file,
+            "--newline", "--progress", "--cookies", cookies_file,
             "--user-agent", "Mozilla/5.0",
-            "--newline",
-            youtube_dl_url,
-            "-o", download_directory
-        ]
-    else:
-        command_to_exec = [
-            "yt-dlp",
-            "-c",
-            "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
-            "--embed-subs",
-            "-f", f"{youtube_dl_format}bestvideo+bestaudio/best",
-            "--hls-prefer-ffmpeg",
-            "--cookies", cookies_file,
-            "--user-agent", "Mozilla/5.0",
-            "--newline",
             youtube_dl_url,
             "-o", download_directory
         ]
 
-    if Config.HTTP_PROXY:
-        command_to_exec.extend(["--proxy", Config.HTTP_PROXY])
-    if youtube_dl_username:
-        command_to_exec.extend(["--username", youtube_dl_username])
-    if youtube_dl_password:
-        command_to_exec.extend(["--password", youtube_dl_password])
-
-    command_to_exec.append("--no-warnings")
-
-    start = datetime.now()
     process = await asyncio.create_subprocess_exec(
         *command_to_exec,
         stdout=asyncio.subprocess.PIPE,
@@ -134,31 +73,71 @@ async def youtube_dl_call_back(bot, update):
     )
 
     async def stream_reader(stream):
+        last_update = time.time()
         async for line in stream:
-            decoded_line = line.decode("utf-8").strip()
-            if "%" in decoded_line and "ETA" in decoded_line:
+            decoded = line.decode("utf-8").strip()
+            if "%" in decoded:
+                if time.time() - last_update < 5:
+                    continue
+                last_update = time.time()
                 try:
-                    parts = decoded_line.split()
+                    parts = decoded.split()
                     percent = parts[1]
                     downloaded = parts[3]
                     speed = parts[5] if len(parts) > 5 else "0B/s"
                     eta = parts[7] if len(parts) > 7 else "--"
-                    text = f"⬇️ Downloading: `{percent}`\n📦 Size: `{downloaded}` | ⚡ Speed: `{speed}` | ⏳ ETA: `{eta}`"
+
+                    # Generate progress bar
+                    bars = int(float(percent.strip('%')) // 10)
+                    bar_display = "[" + "▣" * bars + "▢" * (10 - bars) + "]"
+
+                    text = (
+                        f"𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱𝗶𝗻𝗴: {percent}\n"
+                        f"{bar_display}\n\n"
+                        f"➩ 🚀Speed: {speed}\n"
+                        f"➩ ✅Done: {downloaded}\n"
+                        f"➩ 📁Size: unknown\n"
+                        f"➩ 🕒Time Left: {eta}"
+                    )
                     await update.message.edit_caption(caption=text)
                 except Exception as e:
                     logger.warning(f"Progress parse error: {e}")
 
-    await asyncio.gather(
-        stream_reader(process.stdout),
-        stream_reader(process.stderr)
-    )
-
+    await asyncio.gather(stream_reader(process.stdout), stream_reader(process.stderr))
     return_code = await process.wait()
+
     if return_code != 0:
-        await update.message.edit_caption(
-            caption="❌ Download failed."
-        )
+        await update.message.edit_caption(caption="❌ Download failed.")
         return
+
+    file_size = os.stat(download_directory).st_size if os.path.isfile(download_directory) else 0
+    start_time = time.time()
+    description = Translation.CUSTOM_CAPTION_UL_FILE
+
+    await update.message.edit_caption(caption=Translation.UPLOAD_START.format(custom_file_name))
+    if not await db.get_upload_as_doc(update.from_user.id):
+        thumbnail = await Gthumb01(bot, update)
+        await update.message.reply_document(
+            document=download_directory,
+            thumb=thumbnail,
+            caption=description,
+            progress=progress_for_pyrogram,
+            progress_args=(Translation.UPLOAD_START, update.message, start_time)
+        )
+    else:
+        width, height, duration = await Mdata01(download_directory)
+        thumb_image_path = await Gthumb02(bot, update, duration, download_directory)
+        await update.message.reply_video(
+            video=download_directory,
+            caption=description,
+            duration=duration,
+            width=width,
+            height=height,
+            supports_streaming=True,
+            thumb=thumb_image_path,
+            progress=progress_for_pyrogram,
+            progress_args=(Translation.UPLOAD_START, update.message, start_time)
+        )
 
     # File upload handling continues here (use your existing upload logic)...
     
