@@ -1,4 +1,3 @@
-return await response.release()
 # @Shrimadhav Uk | @LISA_FAN_LK
 
 import logging
