@@ -1,3 +1,5 @@
+# ©️ LISA-KOREA | @LISA_FAN_LK | NT_BOT_CHANNEL
+
 import logging
 import asyncio
 import json
@@ -17,6 +19,8 @@ from PIL import Image
 from plugins.functions.ran_text import random_char
 
 cookies_file = 'cookies.txt'
+
+# Set up logging
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -28,11 +32,6 @@ user_states = {}
 async def show_rename_options(bot, message, response_json, random_id):
     """Show rename options after URL analysis"""
     
-    original_title = response_json.get('title', 'Unknown')
-    duration = response_json.get('duration_string', 'Unknown')
-    uploader = response_json.get('uploader', 'Unknown')
-    view_count = response_json.get('view_count', 'Unknown')
-    
     # Create inline keyboard with rename options
     keyboard = InlineKeyboardMarkup([
         [
@@ -43,19 +42,9 @@ async def show_rename_options(bot, message, response_json, random_id):
         ]
     ])
     
-    info_text = (
-        "📋 **File Information**\n\n"
-        f"🎬 **Title:** `{original_title}`\n"
-        f"📏 **Duration:** {duration}\n"
-        f"👀 **Views:** {view_count}\n"
-        f"📺 **Uploader:** {uploader}\n\n"
-        "**Choose naming option:**"
-    )
-    
-    await message.reply_text(
-        text=info_text,
-        reply_markup=keyboard,
-        quote=True
+    await message.edit_caption(
+        caption="**Choose naming option:**",
+        reply_markup=keyboard
     )
 
 async def handle_rename_callback(bot, update: CallbackQuery):
@@ -76,14 +65,14 @@ async def handle_rename_callback(bot, update: CallbackQuery):
     if action == "rename_default":
         # Use default name and start download
         await update.answer("✅ Using default filename")
-        await update.message.edit_text("📤 **Starting download with default name...**")
+        await update.message.edit_caption("📤 **Starting download with default name...**")
         
         # Start download with default name
         await start_download_process(bot, update, response_json, random_id, use_default=True)
         
     elif action == "rename_custom":
         # Ask for custom name
-        await update.message.edit_text(
+        await update.message.edit_caption(
             "✏️ **Custom File Name**\n\n"
             "Please reply with your desired filename:\n"
             "Example: `My Video Name`\n\n"
@@ -170,7 +159,7 @@ async def start_download_process(bot, message_or_update, response_json, random_i
     await youtube_dl_call_back_internal(bot, progress_message, youtube_dl_url, response_json, random_id, filename_base, user_id)
 
 async def youtube_dl_call_back_internal(bot, progress_message, youtube_dl_url, response_json, random_id, filename_base, user_id):
-    """Internal download function"""
+    """Internal download function with progress tracking"""
     
     random1 = random_char(5)
     
@@ -213,9 +202,9 @@ async def youtube_dl_call_back_internal(bot, progress_message, youtube_dl_url, r
     command_to_exec = [
         "yt-dlp", "-c", "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
         "--embed-subs", "--newline", "--progress",
-        "-f", f"{youtube_dl_format}",
+        "-f", f"{youtube_dl_format}bestvideo+bestaudio/best",
         "--hls-prefer-ffmpeg", "--cookies", cookies_file,
-        "--user-agent", "Mozilla/5.0",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
         youtube_dl_url,
         "-o", download_directory
     ]
@@ -417,12 +406,12 @@ async def youtube_dl_call_back_internal(bot, progress_message, youtube_dl_url, r
         )
         return False
 
-    # Start upload
+    # Upload as document only
     await progress_message.edit_text(f"📤 **Uploading:** `{custom_file_name}`")
     start_time = time.time()
 
     try:
-        # Upload as document by default
+        # Upload as document
         thumbnail = await Gthumb01(bot, progress_message)
         await progress_message.reply_document(
             document=download_directory,
@@ -467,7 +456,7 @@ async def youtube_dl_call_back_internal(bot, progress_message, youtube_dl_url, r
 
     return True
 
-# Original callback function for backward compatibility
+# Original callback function modified to show rename options
 async def youtube_dl_call_back(bot, update):
     """Original callback function - now redirects to rename options"""
     cb_data = update.data
