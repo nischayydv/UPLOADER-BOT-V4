@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import time
+import re
 from datetime import datetime
 from pyrogram import enums
 from pyrogram.types import InputMediaPhoto
@@ -126,137 +127,171 @@ async def youtube_dl_call_back(bot, update):
         stderr=asyncio.subprocess.PIPE,
     )
 
+    # Progress tracking variables
+    total_size = "Unknown"
+    downloaded_size = "0B"
+    last_update = time.time()
+
     async def stream_reader(stream):
-        last_update = time.time()
+        nonlocal total_size, downloaded_size, last_update
+        
         async for line in stream:
             decoded = line.decode("utf-8").strip()
-            if "%" in decoded and "ETA" in decoded:
-                if time.time() - last_update < 5:
+            
+            # Parse yt-dlp progress output
+            # Format: [download] 45.2% of 234.56MiB at 1.23MiB/s ETA 00:45
+            if "[download]" in decoded and "%" in decoded:
+                if time.time() - last_update < 3:  # Update every 3 seconds
                     continue
                 last_update = time.time()
+                
                 try:
-                    parts = decoded.split()
-                    percent = parts[1]
-                    speed = parts[5] if len(parts) > 5 else "0B/s"
-                    eta = parts[7] if len(parts) > 7 else "--"
-
-                    bars = int(float(percent.strip('%')) // 10)
+                    # Extract progress information using regex
+                    progress_match = re.search(r'(\d+\.?\d*)%\s+of\s+([\d\.]+\w+)\s+at\s+([\d\.]+\w+/s)\s+ETA\s+(\d+:\d+)', decoded)
+                    
+                    if progress_match:
+                        percent = progress_match.group(1)
+                        total_size = progress_match.group(2)
+                        speed = progress_match.group(3)
+                        eta = progress_match.group(4)
+                        
+                        # Calculate downloaded size
+                        try:
+                            percent_float = float(percent)
+                            downloaded_size = f"{percent_float:.1f}% of {total_size}"
+                        except:
+                            downloaded_size = f"{percent}% of {total_size}"
+                    else:
+                        # Alternative parsing for different yt-dlp output formats
+                        parts = decoded.split()
+                        if len(parts) >= 8:
+                            percent = parts[1] if parts[1].endswith('%') else "0%"
+                            if "of" in parts and len(parts) > parts.index("of") + 1:
+                                total_idx = parts.index("of") + 1
+                                total_size = parts[total_idx] if total_idx < len(parts) else "Unknown"
+                            speed = next((p for p in parts if '/s' in p), "0B/s")
+                            eta_idx = next((i for i, p in enumerate(parts) if 'ETA' in p), -1)
+                            eta = parts[eta_idx + 1] if eta_idx != -1 and eta_idx + 1 < len(parts) else "--:--"
+                        else:
+                            # Fallback parsing
+                            percent = "0%"
+                            speed = "0B/s"
+                            eta = "--:--"
+                            for part in parts:
+                                if part.endswith('%'):
+                                    percent = part
+                                elif '/s' in part:
+                                    speed = part
+                    
+                    # Create progress bar
+                    try:
+                        percent_num = float(percent.replace('%', ''))
+                        bars = int(percent_num // 10)
+                    except:
+                        percent_num = 0
+                        bars = 0
+                    
                     bar_display = "┏━━━━✦[" + "▣" * bars + "▢" * (10 - bars) + "]✦━━━━"
 
                     caption_text = (
-                        "📤 Download.. 📤\n"
+                        "📤 Downloading... 📤\n"
                         f"{bar_display}\n"
-                        f"┣ 📁 Tᴏᴛᴀʟ : unknown\n"
-                        f"┣ 🚀 Sᴘᴇᴇᴅ : {speed}\n"
-                        f"┣ 🕒 Tɪᴍᴇ : {eta}\n"
+                        f"┣ 📊 Progress: {percent}%\n"
+                        f"┣ 📁 Total: {total_size}\n"
+                        f"┣ 📥 Downloaded: {downloaded_size}\n"
+                        f"┣ 🚀 Speed: {speed}\n"
+                        f"┣ 🕒 ETA: {eta}\n"
                         "┗━━━━━━━━━━━━━━━━━━━━"
                     )
-                    await update.message.edit_caption(caption=caption_text)
+                    
+                    try:
+                        await update.message.edit_caption(caption=caption_text)
+                    except Exception as edit_error:
+                        logger.warning(f"Caption edit error: {edit_error}")
+                        
                 except Exception as e:
                     logger.warning(f"Progress parse error: {e}")
+                    logger.debug(f"Raw output: {decoded}")
 
-    await asyncio.gather(stream_reader(process.stdout), stream_reader(process.stderr))
+    # Start reading both stdout and stderr
+    await asyncio.gather(
+        stream_reader(process.stdout), 
+        stream_reader(process.stderr),
+        return_exceptions=True
+    )
+    
     return_code = await process.wait()
 
     if return_code != 0:
-        await update.message.edit_caption(caption="❌ Download failed.")
-        return
+        stdout, stderr = await process.communicate()
+        error_output = stderr.decode().strip() if stderr else "Unknown error"
+        logger.error(f"yt-dlp failed with return code {return_code}: {error_output}")
+        await update.message.edit_caption(caption=f"❌ Download failed: {error_output}")
+        return False
 
-    file_size = os.stat(download_directory).st_size if os.path.isfile(download_directory) else 0
-    start_time = time.time()
+    # Check if file was downloaded successfully
+    if not os.path.isfile(download_directory):
+        # Try alternative extensions
+        base_name = os.path.splitext(download_directory)[0]
+        possible_extensions = ['.mkv', '.mp4', '.webm', '.m4a', '.mp3', '.opus']
+        
+        for ext in possible_extensions:
+            alt_path = base_name + ext
+            if os.path.isfile(alt_path):
+                download_directory = alt_path
+                break
+        else:
+            logger.error(f"Downloaded file not found: {download_directory}")
+            await update.message.edit_caption(caption="❌ Download failed: File not found")
+            return False
 
-    await update.message.edit_caption(caption=Translation.UPLOAD_START.format(custom_file_name))
-
-    if not await db.get_upload_as_doc(update.from_user.id):
-        thumbnail = await Gthumb01(bot, update)
-        await update.message.reply_document(
-            document=download_directory,
-            thumb=thumbnail,
-            caption=description,
-            progress=progress_for_pyrogram,
-            progress_args=(Translation.UPLOAD_START, update.message, start_time)
-        )
-    else:
-        width, height, duration = await Mdata01(download_directory)
-        thumb_image_path = await Gthumb02(bot, update, duration, download_directory)
-        await update.message.reply_video(
-            video=download_directory,
-            caption=description,
-            duration=duration,
-            width=width,
-            height=height,
-            supports_streaming=True,
-            thumb=thumb_image_path,
-            progress=progress_for_pyrogram,
-            progress_args=(Translation.UPLOAD_START, update.message, start_time)
-        )
-
+    file_size = os.stat(download_directory).st_size
     end_one = datetime.now()
     time_taken_for_download = (end_one - start).seconds
-    end_two = datetime.now()
-    time_taken_for_upload = (end_two - end_one).seconds
 
-    await update.message.edit_caption(
-        caption=Translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(
-            time_taken_for_download, time_taken_for_upload
-        ) + "\n\n𝘛𝘏𝘈𝘕𝘒𝘚 𝘍𝘖𝘙 𝘜𝘚𝘐𝘕𝘎 𝘔𝘌 🥰"
-    )
-
-    # File upload handling continues here (use your existing upload logic)...
-    
-    stdout, stderr = await process.communicate()
-    e_response = stderr.decode().strip()
-    t_response = stdout.decode().strip()
-    logger.info(e_response)
-    logger.info(t_response)
-    
-    if process.returncode != 0:
-        logger.error(f"yt-dlp command failed with return code {process.returncode}")
+    if file_size > Config.TG_MAX_FILE_SIZE:
         await update.message.edit_caption(
-            caption=f"Error: {e_response}"
-        )
-        return False
-    
-    ad_string_to_replace = "**Invalid link !**"
-    if e_response and ad_string_to_replace in e_response:
-        error_message = e_response.replace(ad_string_to_replace, "")
-        await update.message.edit_caption(
-            text=error_message
+            caption=Translation.RCHD_TG_API_LIMIT.format(time_taken_for_download, humanbytes(file_size))
         )
         return False
 
-    if t_response:
-        logger.info(t_response)
-        try:
-            os.remove(save_ytdl_json_path)
-        except FileNotFoundError:
-            pass
-        
-        end_one = datetime.now()
-        time_taken_for_download = (end_one - start).seconds
-        
-        if os.path.isfile(download_directory):
-            file_size = os.stat(download_directory).st_size
-        else:
-            download_directory = os.path.splitext(download_directory)[0] + "." + ".mkv"
-            if os.path.isfile(download_directory):
-                file_size = os.stat(download_directory).st_size
-            else:
-                logger.error(f"Downloaded file not found: {download_directory}")
-                await update.message.edit_caption(
-                    caption=Translation.DOWNLOAD_FAILED
+    # Start upload
+    await update.message.edit_caption(caption=Translation.UPLOAD_START.format(custom_file_name))
+    start_time = time.time()
+
+    try:
+        if tg_send_type == "audio":
+            duration = await Mdata03(download_directory)
+            thumbnail = await Gthumb01(bot, update)
+            await update.message.reply_audio(
+                audio=download_directory,
+                caption=description,
+                duration=duration,
+                thumb=thumbnail,
+                progress=progress_for_pyrogram,
+                progress_args=(
+                    Translation.UPLOAD_START,
+                    update.message,
+                    start_time
                 )
-                return False
-        
-        if file_size > Config.TG_MAX_FILE_SIZE:
-            await update.message.edit_caption(
-                caption=Translation.RCHD_TG_API_LIMIT.format(time_taken_for_download, humanbytes(file_size))
+            )
+        elif tg_send_type == "vm":
+            width, duration = await Mdata02(download_directory)
+            thumbnail = await Gthumb02(bot, update, duration, download_directory)
+            await update.message.reply_video_note(
+                video_note=download_directory,
+                duration=duration,
+                length=width,
+                thumb=thumbnail,
+                progress=progress_for_pyrogram,
+                progress_args=(
+                    Translation.UPLOAD_START,
+                    update.message,
+                    start_time
+                )
             )
         else:
-            await update.message.edit_caption(
-                caption=Translation.UPLOAD_START.format(custom_file_name)
-            )
-            start_time = time.time()
+            # For video or document
             if not await db.get_upload_as_doc(update.from_user.id):
                 thumbnail = await Gthumb01(bot, update)
                 await update.message.reply_document(
@@ -288,51 +323,30 @@ async def youtube_dl_call_back(bot, update):
                         start_time
                     )
                 )
-            
-            if tg_send_type == "audio":
-                duration = await Mdata03(download_directory)
-                thumbnail = await Gthumb01(bot, update)
-                await update.message.reply_audio(
-                    audio=download_directory,
-                    caption=description,
-                    duration=duration,
-                    thumb=thumbnail,
-                    progress=progress_for_pyrogram,
-                    progress_args=(
-                        Translation.UPLOAD_START,
-                        update.message,
-                        start_time
-                    )
-                )
-            elif tg_send_type == "vm":
-                width, duration = await Mdata02(download_directory)
-                thumbnail = await Gthumb02(bot, update, duration, download_directory)
-                await update.message.reply_video_note(
-                    video_note=download_directory,
-                    duration=duration,
-                    length=width,
-                    thumb=thumbnail,
-                    progress=progress_for_pyrogram,
-                    progress_args=(
-                        Translation.UPLOAD_START,
-                        update.message,
-                        start_time
-                    )
-                )
-            else:
-                logger.info("✅ " + custom_file_name)
-            
-            end_two = datetime.now()
-            time_taken_for_upload = (end_two - end_one).seconds
-            try:
+
+        end_two = datetime.now()
+        time_taken_for_upload = (end_two - end_one).seconds
+
+        await update.message.edit_caption(
+            caption=Translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(
+                time_taken_for_download, time_taken_for_upload
+            ) + "\n\n𝘛𝘏𝘈𝘕𝘒𝘚 𝘍𝘖𝘙 𝘜𝘚𝘐𝘕𝘎 𝘔𝘌 🥰"
+        )
+
+        logger.info(f"✅ Downloaded in: {time_taken_for_download} seconds")
+        logger.info(f"✅ Uploaded in: {time_taken_for_upload} seconds")
+
+    except Exception as upload_error:
+        logger.error(f"Upload error: {upload_error}")
+        await update.message.edit_caption(caption=f"❌ Upload failed: {str(upload_error)}")
+    finally:
+        # Cleanup
+        try:
+            if os.path.exists(tmp_directory_for_each_user):
                 shutil.rmtree(tmp_directory_for_each_user)
-                os.remove(thumbnail)
-            except Exception as e:
-                logger.error(f"Error cleaning up: {e}")
-            
-            await update.message.edit_caption(
-                caption=Translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(time_taken_for_download, time_taken_for_upload)
-            )
-            
-            logger.info(f"✅ Downloaded in: {time_taken_for_download} seconds")
-            logger.info(f"✅ Uploaded in: {time_taken_for_upload} seconds")
+            if os.path.exists(save_ytdl_json_path):
+                os.remove(save_ytdl_json_path)
+        except Exception as cleanup_error:
+            logger.error(f"Cleanup error: {cleanup_error}")
+
+    return True
