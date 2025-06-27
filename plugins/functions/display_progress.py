@@ -1,55 +1,79 @@
+
 import math
 import time
-from plugins.script import Translation
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram import enums
+from plugins.script import Translation
+from pyrogram import enums 
 
 
-def TimeFormatter(milliseconds: int) -> str:
-    seconds, ms = divmod(milliseconds, 1000)
-    minutes, sec = divmod(seconds, 60)
-    hours, minute = divmod(minutes, 60)
-    days, hour = divmod(hours, 24)
-
-    tmp = ""
-    if days: tmp += f"{days}d "
-    if hour: tmp += f"{hour}h "
-    if minute: tmp += f"{minute}m "
-    if sec: tmp += f"{sec}s"
-    return tmp.strip()
 
 
 async def progress_for_pyrogram(current, total, ud_type, message, start):
     now = time.time()
     diff = now - start
-
-    # Always update progress (frequent updates)
-    if current == total or diff > 0:
+    if round(diff % 10.00) == 0 or current == total:
         percentage = current * 100 / total
-        speed = current / diff if diff != 0 else 0
-        elapsed_time = round(diff * 1000)
-        time_to_completion = round((total - current) / speed) * 1000 if speed != 0 else 0
+        speed = current / diff
+        elapsed_time = round(diff) * 1000
+        time_to_completion = round((total - current) / speed) * 1000
         estimated_total_time = elapsed_time + time_to_completion
 
-        elapsed_str = TimeFormatter(elapsed_time)
-        total_str = TimeFormatter(estimated_total_time)
+        elapsed_time = TimeFormatter(milliseconds=elapsed_time)
+        estimated_total_time = TimeFormatter(milliseconds=estimated_total_time)
 
         progress = "┏━━━━✦[{0}{1}]✦━━━━".format(
             ''.join(["▣" for i in range(math.floor(percentage / 10))]),
             ''.join(["▢" for i in range(10 - math.floor(percentage / 10))])
         )
 
-        tmp = f"""{progress}
-**Progress:** `{percentage:.2f}%`
-**Done:** `{humanbytes(current)}`
-**Total:** `{humanbytes(total)}`
-**Speed:** `{humanbytes(speed)}/s`
-**ETA:** `{total_str}`"""
-
+        tmp = progress + Translation.PROGRESS.format(
+            round(percentage, 2),
+            humanbytes(current),
+            humanbytes(total),
+            humanbytes(speed),
+            estimated_total_time if estimated_total_time != '' else "0 s"
+        )
         try:
             await message.edit(
-                text=f"{ud_type}\n\n{tmp}",
-                parse_mode=enums.ParseMode.MARKDOWN
+              text= Translation.PROGRES.format(
+              ud_type,
+              tmp
+                ),
+                parse_mode=enums.ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [ 
+                        InlineKeyboardButton('⛔ Cancel', callback_data=f"cancel_download+{id}")
+                       ]
+                   ]
+                 )
             )
-        except Exception as e:
+        except:
             pass
+
+
+def humanbytes(size):
+    # https://stackoverflow.com/a/49361727/4723940
+    # 2**10 = 1024
+    if not size:
+        return ""
+    power = 2 ** 10
+    n = 0
+    Dic_powerN = {0: ' ', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
+    while size > power:
+        size /= power
+        n += 1
+    return str(round(size, 2)) + " " + Dic_powerN[n] + 'B'
+
+
+def TimeFormatter(milliseconds: int) -> str:
+    seconds, milliseconds = divmod(int(milliseconds), 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    tmp = ((str(days) + "d, ") if days else "") + \
+          ((str(hours) + "h, ") if hours else "") + \
+          ((str(minutes) + "m, ") if minutes else "") + \
+          ((str(seconds) + "s, ") if seconds else "") + \
+          ((str(milliseconds) + "ms, ") if milliseconds else "")
+    return tmp[:-2]
