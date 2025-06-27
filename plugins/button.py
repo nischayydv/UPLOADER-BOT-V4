@@ -6,15 +6,18 @@ import shutil
 import time
 from datetime import datetime
 from pyrogram import enums
+from pyrogram.types import InputMediaPhoto
 from plugins.config import Config
 from plugins.script import Translation
 from plugins.thumbnail import *
 from plugins.functions.display_progress import progress_for_pyrogram, humanbytes
 from plugins.database.database import db
+from PIL import Image
 from plugins.functions.ran_text import random_char
 import aiohttp
 
 cookies_file = 'cookies.txt'
+# Set up logging
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -23,102 +26,173 @@ logging.getLogger("pyrogram").setLevel(logging.WARNING)
 async def get_total_file_size(url):
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.head(url, timeout=15) as response:
-                size = response.headers.get("Content-Length")
+            async with session.head(url, timeout=10) as res:
+                size = res.headers.get("Content-Length")
                 return int(size) if size else None
     except Exception as e:
-        logger.warning(f"Failed to get file size: {e}")
+        logger.warning(f"[SizeError] {e}")
     return None
 
 async def youtube_dl_call_back(bot, update):
     cb_data = update.data
     tg_send_type, youtube_dl_format, youtube_dl_ext, ranom = cb_data.split("|")
     random1 = random_char(5)
-
+    
     save_ytdl_json_path = os.path.join(Config.DOWNLOAD_LOCATION, f"{update.from_user.id}{ranom}.json")
-
+    
     try:
         with open(save_ytdl_json_path, "r", encoding="utf8") as f:
             response_json = json.load(f)
     except FileNotFoundError as e:
+        logger.error(f"JSON file not found: {e}")
         await update.message.delete()
-        return
-
+        return False
+    
     youtube_dl_url = update.message.reply_to_message.text
     custom_file_name = f"{response_json.get('title')}_{youtube_dl_format}.{youtube_dl_ext}"
-    await update.message.edit_caption(caption=Translation.DOWNLOAD_START.format(custom_file_name))
+    youtube_dl_username = None
+    youtube_dl_password = None
+    
+    if "|" in youtube_dl_url:
+        url_parts = youtube_dl_url.split("|")
+        if len(url_parts) == 2:
+            youtube_dl_url, custom_file_name = url_parts
+        elif len(url_parts) == 4:
+            youtube_dl_url, custom_file_name, youtube_dl_username, youtube_dl_password = url_parts
+        else:
+            for entity in update.message.reply_to_message.entities:
+                if entity.type == "text_link":
+                    youtube_dl_url = entity.url
+                elif entity.type == "url":
+                    o = entity.offset
+                    l = entity.length
+                    youtube_dl_url = youtube_dl_url[o:o + l]
+                    
+        youtube_dl_url = youtube_dl_url.strip()
+        custom_file_name = custom_file_name.strip()
+        if youtube_dl_username:
+            youtube_dl_username = youtube_dl_username.strip()
+        if youtube_dl_password:
+            youtube_dl_password = youtube_dl_password.strip()
+        
+        logger.info(youtube_dl_url)
+        logger.info(custom_file_name)
+    else:
+        for entity in update.message.reply_to_message.entities:
+            if entity.type == "text_link":
+                youtube_dl_url = entity.url
+            elif entity.type == "url":
+                o = entity.offset
+                l = entity.length
+                youtube_dl_url = youtube_dl_url[o:o + l]
 
-    tmp_dir = os.path.join(Config.DOWNLOAD_LOCATION, f"{update.from_user.id}{random1}")
-    os.makedirs(tmp_dir, exist_ok=True)
-    download_path = os.path.join(tmp_dir, custom_file_name)
+    await update.message.edit_caption(
+        caption=Translation.DOWNLOAD_START.format(custom_file_name)
+    )
 
-    total_size_bytes = await get_total_file_size(youtube_dl_url)
-    total_size_str = humanbytes(total_size_bytes) if total_size_bytes else "unknown"
+    description = Translation.CUSTOM_CAPTION_UL_FILE
+    if "fulltitle" in response_json:
+        description = response_json["fulltitle"][0:1021]
+
+    tmp_directory_for_each_user = os.path.join(Config.DOWNLOAD_LOCATION, f"{update.from_user.id}{random1}")
+    os.makedirs(tmp_directory_for_each_user, exist_ok=True)
+    download_directory = os.path.join(tmp_directory_for_each_user, custom_file_name)
+
+    total_size = await get_total_file_size(youtube_dl_url)
+    total_str = humanbytes(total_size) if total_size else "unknown"
 
     command_to_exec = [
-        "yt-dlp", "-c", "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
-        "--embed-subs", "--newline", "--progress",
+        "yt-dlp",
+        "--newline",
+        "-c",
+        "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
+        "--embed-subs",
         "-f", f"{youtube_dl_format}bestvideo+bestaudio/best",
-        "--hls-prefer-ffmpeg", "--cookies", cookies_file,
-        "--user-agent", "Mozilla/5.0",
+        "--hls-prefer-ffmpeg",
+        "--cookies", cookies_file,
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         youtube_dl_url,
-        "-o", download_path
+        "-o", download_directory
     ]
 
     if tg_send_type == "audio":
         command_to_exec = [
-            "yt-dlp", "-c", "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
-            "--extract-audio", "--audio-format", youtube_dl_ext,
+            "yt-dlp",
+            "--newline",
+            "-c",
+            "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
+            "--extract-audio",
+            "--audio-format", youtube_dl_ext,
             "--audio-quality", youtube_dl_format,
-            "--newline", "--progress", "--cookies", cookies_file,
+            "--cookies", cookies_file,
             "--user-agent", "Mozilla/5.0",
             youtube_dl_url,
-            "-o", download_path
+            "-o", download_directory
         ]
+
+    if Config.HTTP_PROXY:
+        command_to_exec.extend(["--proxy", Config.HTTP_PROXY])
+    if youtube_dl_username:
+        command_to_exec.extend(["--username", youtube_dl_username])
+    if youtube_dl_password:
+        command_to_exec.extend(["--password", youtube_dl_password])
+
+    command_to_exec.append("--no-warnings")
+
+    logger.info(command_to_exec)
+    start = datetime.now()
 
     process = await asyncio.create_subprocess_exec(
         *command_to_exec,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
 
-    async def stream_reader(stream):
-        last_update = time.time()
+    async def stream_progress(stream):
+        last_edit = time.time()
         async for line in stream:
-            decoded = line.decode("utf-8").strip()
-            if "%" in decoded and "Downloading" in decoded:
-                if time.time() - last_update < 5:
-                    continue
-                last_update = time.time()
-                try:
-                    parts = decoded.split()
+            try:
+                text = line.decode().strip()
+                if "Downloading" in text and "%" in text:
+                    parts = text.split()
                     percent = parts[1]
-                    downloaded = parts[3]
-                    speed = parts[5] if len(parts) > 5 else "0B/s"
-                    eta = parts[7] if len(parts) > 7 else "--"
+                    done = parts[3]
+                    speed = parts[5]
+                    eta = parts[7]
 
                     bars = int(float(percent.strip('%')) // 10)
-                    bar_display = "[{}{}]".format("▣" * bars, "▢" * (10 - bars))
+                    bar = f"[{'▣' * bars}{'▢' * (10 - bars)}]"
 
                     msg = (
-                        f"📤 𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱.. 📤\n"
-                        f"┏━━━━✦{bar_display}✦━━━━\n"
+                        f"📤 Download.. 📤\n"
+                        f"┏━━━━✦{bar}✦━━━━\n"
                         f"┣ 📦 Pʀᴏɢʀᴇꜱꜱ : {percent}\n"
-                        f"┣ ✅ Dᴏɴᴇ : {downloaded}\n"
-                        f"┣ 📁 Tᴏᴛᴀʟ : {total_size_str}\n"
+                        f"┣ ✅ Dᴏɴᴇ : {done}\n"
+                        f"┣ 📁 Tᴏᴛᴀʟ : {total_str}\n"
                         f"┣ 🚀 Sᴘᴇᴇᴅ : {speed}\n"
                         f"┣ 🕒 Tɪᴍᴇ : {eta}\n"
                         f"┗━━━━━━━━━━━━━━━━━━━━"
                     )
-                    await update.message.edit_caption(caption=msg)
-                except Exception as e:
-                    logger.warning(f"progress bar parse error: {e}")
 
-    await asyncio.gather(stream_reader(process.stdout), stream_reader(process.stderr))
-    return_code = await process.wait()
-    if return_code != 0:
-        await update.message.edit_caption("❌ Download failed.")
-        return
+                    if time.time() - last_edit > 5:
+                        await update.message.edit_caption(msg)
+                        last_edit = time.time()
+            except Exception as e:
+                logger.warning(f"[progress error] {e}")
+
+    await stream_progress(process.stdout)
+    stdout, _ = await process.communicate()
+    t_response = stdout.decode().strip()
+    logger.info(t_response)
+
+    if process.returncode != 0:
+        await update.message.edit_caption(
+            caption="❌ Download failed."
+        )
+        return False
+
+    await update.message.edit_caption(f"📤 Uploading `{custom_file_name}`...\nPlease wait ⏳")
+
 
     file_size = os.stat(download_path).st_size if os.path.isfile(download_path) else 0
     start_time = time.time()
