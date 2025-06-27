@@ -6,33 +6,35 @@ from flask import Flask
 from plugins.config import Config
 from pyrogram import Client
 
-# === Start a Flask app to expose a port ===
+# Optional Flask app to expose PORT (required by Render)
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "✅ Telegram Bot is alive and Flask is running!"
+    return "✅ Bot is running and Flask is alive!"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))  # Render sets this
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
-# === Run both Flask and the bot ===
 if __name__ == "__main__":
-    # Start Flask in background
+    # Start Flask in a background thread (for Render hosting)
     threading.Thread(target=run_flask).start()
 
-    # Start Telegram bot
+    # Create download directory if it doesn't exist
     if not os.path.isdir(Config.DOWNLOAD_LOCATION):
         os.makedirs(Config.DOWNLOAD_LOCATION)
 
+    # Bot plugins
     plugins = dict(root="plugins")
 
+    # Initialize the Pyrogram Client (with upload_boost)
     Client = Client(
         "@UploaderXNTBot",
         bot_token=Config.BOT_TOKEN,
         api_id=Config.API_ID,
         api_hash=Config.API_HASH,
+        upload_boost=True,         # ✅ Only works with PyroBlack fork
         sleep_threshold=300,
         plugins=plugins
     )
