@@ -1,63 +1,59 @@
 import math
 import time
 
-
 def humanbytes(size):
-    # Converts bytes to human-readable format
     if not size:
-        return "0 B"
-    power = 1024
+        return ""
+    power = 2**10
     n = 0
-    power_labels = ["B", "KB", "MB", "GB", "TB"]
-    while size >= power and n < len(power_labels) - 1:
+    power_labels = {0: '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti'}
+    while size >= power and n < 4:
         size /= power
         n += 1
-    return f"{size:.2f} {power_labels[n]}"
+    return f"{round(size, 2)} {power_labels[n]}B"
 
-
-def TimeFormatter(milliseconds):
+def TimeFormatter(milliseconds: int) -> str:
     seconds, milliseconds = divmod(int(milliseconds), 1000)
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     days, hours = divmod(hours, 24)
-    tmp = ((f"{days}d, " if days else "") +
-           (f"{hours}h, " if hours else "") +
-           (f"{minutes}m, " if minutes else "") +
-           (f"{seconds}s" if seconds else "")).strip(', ')
-    return tmp
 
+    time_parts = []
+    if days > 0:
+        time_parts.append(f"{days}d")
+    if hours > 0:
+        time_parts.append(f"{hours}h")
+    if minutes > 0:
+        time_parts.append(f"{minutes}m")
+    if seconds > 0:
+        time_parts.append(f"{seconds}s")
+
+    return " ".join(time_parts)
 
 async def progress_for_pyrogram(current, total, message, start):
     now = time.time()
     diff = now - start
-
     if diff == 0:
-        diff = 1e-6
-
-    percentage = current * 100 / total
+        diff = 1e-6  # prevent division by zero
     speed = current / diff
-    elapsed_time = round(diff)
-    time_to_completion = round((total - current) / speed)
+    percentage = current * 100 / total
+    elapsed_time = round(diff) * 1000
+    time_to_completion = round((total - current) / speed) * 1000
     estimated_total_time = elapsed_time + time_to_completion
 
     bar_length = 20
-    filled_length = int(bar_length * current // total)
-    bar = '█' * filled_length + '░' * (bar_length - filled_length)
-
-    progress_str = (
-        f"⬇️ Downloading...
-"
-        f"[{bar}] {percentage:.2f}%
-"
-        f"📦 {humanbytes(current)} of {humanbytes(total)}
-"
-        f"⚡ Speed: {humanbytes(speed)}/s
-"
-        f"⏱️ ETA: {TimeFormatter(time_to_completion * 1000)}"
-    )
+    filled_length = int(bar_length * percentage / 100)
+    bar = "█" * filled_length + "░" * (bar_length - filled_length)
 
     try:
-        await message.edit(progress_str)
+        await message.edit_text(
+            text=(
+                f"⬇️ **Downloading...**\n"
+                f"[{bar}] `{percentage:.2f}%`\n"
+                f"📦 `{humanbytes(current)} of {humanbytes(total)}`\n"
+                f"⚡ `{humanbytes(speed)}/s` | ⏳ `{TimeFormatter(time_to_completion)}`"
+            ),
+            disable_web_page_preview=True
+        )
     except Exception:
         pass
-      
