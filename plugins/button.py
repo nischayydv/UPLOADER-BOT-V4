@@ -14,8 +14,8 @@ from plugins.database.database import db
 from plugins.functions.ran_text import random_char
 
 cookies_file = 'cookies.txt'
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 
@@ -74,12 +74,22 @@ async def youtube_dl_call_back(bot, update):
 
     async def stream_reader(stream):
         last_update = time.time()
+        total_size = None
+
         async for line in stream:
             decoded = line.decode("utf-8").strip()
+
+            if "Total file size" in decoded and not total_size:
+                try:
+                    total_size = decoded.split(":")[-1].strip()
+                except:
+                    total_size = "unknown"
+
             if "%" in decoded:
                 if time.time() - last_update < 5:
                     continue
                 last_update = time.time()
+
                 try:
                     parts = decoded.split()
                     percent = parts[1]
@@ -87,7 +97,6 @@ async def youtube_dl_call_back(bot, update):
                     speed = parts[5] if len(parts) > 5 else "0B/s"
                     eta = parts[7] if len(parts) > 7 else "--"
 
-                    # Generate progress bar
                     bars = int(float(percent.strip('%')) // 10)
                     bar_display = "[" + "▣" * bars + "▢" * (10 - bars) + "]"
 
@@ -96,7 +105,7 @@ async def youtube_dl_call_back(bot, update):
                         f"{bar_display}\n\n"
                         f"➩ 🚀Speed: {speed}\n"
                         f"➩ ✅Done: {downloaded}\n"
-                        f"➩ 📁Size: unknown\n"
+                        f"➩ 📁Size: {total_size or 'unknown'}\n"
                         f"➩ 🕒Time Left: {eta}"
                     )
                     await update.message.edit_caption(caption=text)
@@ -115,10 +124,12 @@ async def youtube_dl_call_back(bot, update):
     description = Translation.CUSTOM_CAPTION_UL_FILE
 
     await update.message.edit_caption(caption=Translation.UPLOAD_START.format(custom_file_name))
+    
     if not await db.get_upload_as_doc(update.from_user.id):
         thumbnail = await Gthumb01(bot, update)
         await update.message.reply_document(
             document=download_directory,
+            file_name=os.path.basename(download_directory),
             thumb=thumbnail,
             caption=description,
             progress=progress_for_pyrogram,
@@ -138,6 +149,13 @@ async def youtube_dl_call_back(bot, update):
             progress=progress_for_pyrogram,
             progress_args=(Translation.UPLOAD_START, update.message, start_time)
         )
+
+    end_time = time.time()
+    total_time = round(end_time - start_time)
+
+    await update.message.edit_caption(
+        caption=f"✅ Upload completed in {total_time}s\n\n𝘛𝘏𝘈𝘕𝘒𝘚 𝘍𝘖𝘙 𝘜𝘚𝘐𝘕𝘎 𝘔𝘌 🥰"
+    )
 
     # File upload handling continues here (use your existing upload logic)...
     
