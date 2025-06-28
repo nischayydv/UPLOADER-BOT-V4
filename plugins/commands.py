@@ -23,17 +23,31 @@ from plugins.functions.verify import verify_user, check_token
 from pyrogram import types, errors
 import random
 
-REACTIONS = ["💖", "🔥", "🎉", "💥", "✨", "🚀"]  # Or any supported emoji
+REACTIONS = [
+    "😂", "🔥", "💯", "😍", "😎", "😭", "😢", "🥺", "😅", "👍", "❤️", "💔", "👌", "🙏",
+    "😡", "😤", "🤯", "😱", "🤩", "😉", "😜", "🤔", "🤨", "🙄", "😇", "😈", "💋", "🤡",
+    "💀", "👻", "🎉", "✨", "🥳", "🫶", "🫡", "🫠", "🫥", "😴", "🤗", "🤤", "🤓", "🤠",
+    "🥵", "🥶", "🤪", "🤫", "😬", "😳", "😌", "🤐", "🤑", "😕", "😟", "😔", "😞", "😩",
+    "🤬", "😵", "😶", "😒", "🤮", "🙃", "🙁", "😧", "😓", "🫢", "🫣", "💥", "🚀", "🌟"
+]
+
 EMOJI_MODE = True
+
+@Client.on_message(filters.private)
+async def react_to_everything(bot, message):
+    if EMOJI_MODE:
+        try:
+            await bot.set_reaction(
+                chat_id=message.chat.id,
+                message_id=message.id,
+                reaction=[random.choice(REACTIONS)]
+            )
+        except Exception as e:
+            print(f"❌ Reaction failed: {e}")
+
 
 @Client.on_message(filters.private & filters.command(["start"]))
 async def start(bot, update):
-    if EMOJI_MODE:
-        try:
-            await update.react(emoji=random.choice(REACTIONS), big=True)
-        except Exception as e:
-            print(f"Reaction failed: {e}")  # Handle limited bot permissions here
-
     if Config.UPDATES_CHANNEL is not None:
         fsub = await handle_force_subscribe(bot, update)
         if fsub == 400:
@@ -44,7 +58,7 @@ async def start(bot, update):
         await update.reply_text(
             text=Translation.START_TEXT.format(update.from_user.mention),
             reply_markup=Translation.START_BUTTONS,
-            message_effect_id=5104841245755180586,  # For bot's message effect
+            message_effect_id=5104841245755180586,
             reply_to_message_id=update.id
         )
         return
