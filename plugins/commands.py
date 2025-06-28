@@ -20,7 +20,9 @@ from plugins.functions.forcesub import handle_force_subscribe
 from plugins.settings.settings import OpenSettings
 from plugins.config import *
 from plugins.functions.verify import verify_user, check_token
-from pyrogram import types, erroimport random
+from pyrogram import types, errors
+
+import random
 
 REACTIONS = [
     "😂", "🔥", "💯", "😍", "😎", "😭", "😢", "🥺", "😅", "👍", "❤️", "💔", "👌", "🙏",
