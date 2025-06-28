@@ -24,68 +24,65 @@ from pyrogram import types, errors
 
 import random
 
+# ✅ Only your requested emojis
 REACTIONS = [
-    "😂", "🔥", "💯", "😍", "😎", "😭", "😢", "🥺", "😅", "👍", "❤️", "💔", "👌", "🙏",
-    "😡", "😤", "🤯", "😱", "🤩", "😉", "😜", "🤔", "🤨", "🙄", "😇", "😈", "💋", "🤡",
-    "💀", "👻", "🎉", "✨", "🥳", "🫶", "🫡", "🫠", "🫥", "😴", "🤗", "🤤", "🤓", "🤠",
-    "🥵", "🥶", "🤪", "🤫", "😬", "😳", "😌", "🤐", "🤑", "😕", "😟", "😔", "😞", "😩",
-    "🤬", "😵", "😶", "😒", "🤮", "🙃", "🙁", "😧", "😓", "🫢", "🫣", "💥", "🚀", "🌟"
+    "👍", "❤", "🔥", "🥰", "👏", "😁", "🎉", "🤩", "🙏", "👌",
+    "🕊", "😍", "🐳", "💯", "⚡", "🏆"
 ]
+EMOJI_MODE = True
 
-# ✅ Unified handler for all private messages and commands
-@Client.on_message(filters.private)
-async def handle_all(bot, message):
-    # 🎯 React with emoji
-    try:
-        await bot.set_reaction(
-            chat_id=message.chat.id,
-            message_id=message.id,
-            reaction=[random.choice(REACTIONS)]
+@Client.on_message(filters.private & filters.command(["start"]))
+async def start(bot, update):
+    if EMOJI_MODE:
+        try:
+            await bot.set_reaction(
+                chat_id=update.chat.id,
+                message_id=update.id,
+                reaction=[random.choice(REACTIONS)]
+            )
+        except Exception as e:
+            print(f"Reaction failed: {e}")  # Handle limited bot permissions here
+
+    if Config.UPDATES_CHANNEL is not None:
+        fsub = await handle_force_subscribe(bot, update)
+        if fsub == 400:
+            return
+
+    if len(update.command) != 2:
+        await AddUser(bot, update)
+        await update.reply_text(
+            text=Translation.START_TEXT.format(update.from_user.mention),
+            reply_markup=Translation.START_BUTTONS,
+            message_effect_id=5104841245755180586,  # For bot's message effect
+            reply_to_message_id=update.id
         )
-    except Exception as e:
-        print(f"Reaction failed: {e}")
+        return
 
-    # ⚙️ If it's /start command, proceed with verification
-    if message.text and message.text.startswith("/start"):
-        if Config.UPDATES_CHANNEL is not None:
-            fsub = await handle_force_subscribe(bot, message)
-            if fsub == 400:
-                return
+    # Handle /start with parameters
+    data = update.command[1]
+    if data.split("-", 1)[0] == "verify":
+        userid = data.split("-", 2)[1]
+        token = data.split("-", 3)[2]
 
-        if len(message.command) != 2:
-            await AddUser(bot, message)
-            return await message.reply_text(
-                text=Translation.START_TEXT.format(message.from_user.mention),
-                reply_markup=Translation.START_BUTTONS,
-                message_effect_id=5104841245755180586,
-                reply_to_message_id=message.id
+        if str(update.from_user.id) != str(userid):
+            return await update.reply_text(
+                text="<b>Exᴘɪʀᴇᴅ Lɪɴᴋ Oʀ ⵊɴᴠᴀʟɪᴅ Lɪɴᴋ !</b>",
+                protect_content=True
             )
 
-        # Handle /start with parameters
-        data = message.command[1]
-        if data.split("-", 1)[0] == "verify":
-            userid = data.split("-", 2)[1]
-            token = data.split("-", 3)[2]
-
-            if str(message.from_user.id) != str(userid):
-                return await message.reply_text(
-                    text="<b>Exᴘɪʀᴇᴅ Lɪɴᴋ Oʀ ⵊɴᴠᴀʟɪᴅ Lɪɴᴋ !</b>",
-                    protect_content=True
-                )
-
-            is_valid = await check_token(bot, userid, token)
-            if is_valid:
-                await message.reply_text(
-                    text=f"<b>Hᴇʏ {message.from_user.mention} 👋,\nʏᴏᴜ Aʀᴇ Sᴜᴄᴄᴇssғᴜʟʟʏ Vᴇʀɪғɪᴇᴅ !</b>",
-                    protect_content=True,
-                    message_effect_id=5104841245755180586
-                )
-                await verify_user(bot, userid, token)
-            else:
-                return await message.reply_text(
-                    text="<b>Exᴘɪʀᴇᴅ Lɪɴᴋ Oʀ ⵊɴᴠᴀʟɪᴅ Lɪɴᴋ !</b>",
-                    protect_content=True
-                )
+        is_valid = await check_token(bot, userid, token)
+        if is_valid:
+            await update.reply_text(
+                text=f"<b>Hᴇʏ {update.from_user.mention} 👋,\nʏᴏᴜ Aʀᴇ Sᴜᴄᴄᴇssғᴜʟʟʏ Vᴇʀɪғɪᴇᴅ !</b>",
+                protect_content=True,
+                message_effect_id=5104841245755180586
+            )
+            await verify_user(bot, userid, token)
+        else:
+            return await update.reply_text(
+                text="<b>Exᴘɪʀᴇᴅ Lɪɴᴋ Oʀ ⵊɴᴠᴀʟɪᴅ Lɪɴᴋ !</b>",
+                protect_content=True
+            )
 
 
 
