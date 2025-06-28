@@ -36,6 +36,7 @@ async def start(bot, update):
         await update.reply_text(
             text=Translation.START_TEXT.format(update.from_user.mention),
             reply_markup=Translation.START_BUTTONS,
+            message_effect_id=5104841245755180586
         )
         return
     data = update.command[1]
