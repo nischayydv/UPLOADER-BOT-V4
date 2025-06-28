@@ -24,22 +24,15 @@ from pyrogram import types, errors
 
 import random
 
-# ✅ Only your requested emojis
-REACTIONS = [
-    "👍", "❤", "🔥", "🥰", "👏", "😁", "🎉", "🤩", "🙏", "👌",
-    "🕊", "😍", "🐳", "💯", "⚡", "🏆"
-]
+REACTIONS = ["💖", "👍", "❤", "🔥", "🥰", "👏", "😁", "🎉", "🤩", "🙏", "👌",
+    "🕊", "😍", "🐳", "💯", "⚡", "🏆"]  # Or any supported emoji
 EMOJI_MODE = True
 
 @Client.on_message(filters.private & filters.command(["start"]))
 async def start(bot, update):
     if EMOJI_MODE:
         try:
-            await bot.set_reaction(
-                chat_id=update.chat.id,
-                message_id=update.id,
-                reaction=[random.choice(REACTIONS)]
-            )
+            await update.react(emoji=random.choice(REACTIONS), big=True)
         except Exception as e:
             print(f"Reaction failed: {e}")  # Handle limited bot permissions here
 
@@ -83,7 +76,6 @@ async def start(bot, update):
                 text="<b>Exᴘɪʀᴇᴅ Lɪɴᴋ Oʀ ⵊɴᴠᴀʟɪᴅ Lɪɴᴋ !</b>",
                 protect_content=True
             )
-
 
 
 @Client.on_message(filters.command("help", [".", "/"]) & filters.private)
